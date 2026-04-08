@@ -1,0 +1,8 @@
+test-output/
+test-keys/
+test-config*.yaml
+demo-walkthrough/
+*.bin
+quick-di
+go-fdo-quick-di
+.vscode/

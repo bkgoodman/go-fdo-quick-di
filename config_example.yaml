@@ -1,0 +1,82 @@
+# go-fdo-quick-di configuration
+#
+# Self-contained DI tool for environments without a manufacturing server.
+# Performs both client and server sides of the DI protocol locally.
+# See TRUST_MODELS.md for a detailed discussion of the security trade-offs.
+
+# ─── Manufacturer key mode ─────────────────────────────────────────────
+#
+# "file"      Load a persistent manufacturer key from a PEM file.
+#             Provides real manufacturer provenance but the key is
+#             exposed on disk (e.g. USB key). This is the default.
+#
+# "ephemeral" Generate a random key in memory for each run. The key
+#             is never written to disk and is discarded when the process
+#             exits. No key to steal, but no persistent manufacturer
+#             identity. Trust must come from whoever the voucher is
+#             signed over to, or from the user who uploads it.
+#
+manufacturer_key_mode: "file"
+
+# Manufacturer private key (required when mode=file, ignored when mode=ephemeral)
+manufacturer_key_file: "keys/manufacturer_private.pem"
+
+# Manufacturer certificate chain (optional; auto-generated if omitted)
+manufacturer_cert_file: "keys/manufacturer_cert.pem"
+
+# Manufacturer key type (used only for mode=ephemeral; defaults to match
+# device.key_type). Options: ec256, ec384, rsa2048, rsa3072
+# manufacturer_key_type: "ec384"
+
+# Device credential configuration
+device:
+  # Key type for device attestation key
+  # Options: ec256, ec384, rsa2048, rsa3072
+  key_type: "ec384"
+
+  # Public key encoding for the manufacturer key in the voucher
+  # Options: x509, x5chain, cose
+  key_encoding: "x509"
+
+  # Path to store device credential blob
+  # For TPM builds (-tags=tpm), this path is ignored; credentials are
+  # stored in TPM NV indices.
+  credential_path: "cred.bin"
+
+  # Device info string embedded in the voucher
+  device_info: "MyDevice"
+
+  # Device serial number (optional; random if empty)
+  serial_number: ""
+
+# Rendezvous info embedded in the voucher
+# The device will use these entries during TO1 to find the owner.
+rendezvous:
+  entries:
+    - host: "rvserver.local"
+      port: 8080
+      scheme: "http"
+
+# Ownership extension (optional)
+# When enabled, the voucher is extended (signed over) to the next owner.
+owner_signover:
+  enabled: false
+  # PEM file containing the next owner's public key
+  next_owner_public_key_file: ""
+
+# Voucher output directory
+# Vouchers are saved as PEM-encoded .fdoov files named by GUID.
+voucher_output:
+  directory: "vouchers"
+
+# Voucher push to remote endpoint (optional)
+push:
+  enabled: false
+  url: ""
+  # Authentication method: "bearer" or "fdokeyauth"
+  auth_method: "bearer"
+  # Bearer token (for auth_method: bearer)
+  auth_token: ""
+  # Supplier private key file (for auth_method: fdokeyauth)
+  supplier_key_file: ""
+  timeout: "30s"
