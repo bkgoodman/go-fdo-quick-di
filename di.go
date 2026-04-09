@@ -64,6 +64,7 @@ func performDI(cfg *Config) error {
 	}
 
 	// --- Open credential store and generate device key + HMAC ---
+	fmt.Printf("Credential store: %s\n", credentialBackend)
 	store, err := cred.Open(cfg.Device.CredentialPath)
 	if err != nil {
 		return fmt.Errorf("opening credential store: %w", err)
@@ -177,7 +178,11 @@ func performDI(cfg *Config) error {
 	if err := store.Save(dc); err != nil {
 		return fmt.Errorf("saving device credential: %w", err)
 	}
-	fmt.Printf("Device credential saved: %s\n", cfg.Device.CredentialPath)
+	if credentialBackend == "blob" {
+		fmt.Printf("Device credential saved: %s\n", cfg.Device.CredentialPath)
+	} else {
+		fmt.Printf("Device credential saved: %s (TPM NV indices)\n", credentialBackend)
+	}
 
 	// --- Save voucher as PEM .fdoov ---
 	ovPath, err := saveVoucherPEM(voucher, guid, cfg.VoucherOutput.Directory)

@@ -42,6 +42,9 @@ type Config struct {
 	// Device credential storage
 	Device DeviceConfig `yaml:"device"`
 
+	// TPM settings (only relevant for builds with -tags=tpm)
+	TPM TPMConfig `yaml:"tpm"`
+
 	// Rendezvous info baked into voucher
 	Rendezvous RendezvousConfig `yaml:"rendezvous"`
 
@@ -82,6 +85,22 @@ type OwnerSignoverConfig struct {
 	NextOwnerPublicKeyFile string `yaml:"next_owner_public_key_file"`
 }
 
+// TPMConfig configures TPM behavior (only used in builds with -tags=tpm).
+type TPMConfig struct {
+	// Hierarchy selects the TPM hierarchy for NV index operations.
+	//   "owner"    -- Owner hierarchy (default). Works in Linux userspace.
+	//   "platform" -- Platform hierarchy. Requires firmware-level access;
+	//                 locked after boot on Linux even as root.
+	Hierarchy string `yaml:"hierarchy"`
+
+	// KeyMethod selects how device keys are created inside the TPM.
+	//   "child"   -- Keys created as children of the SRK (default).
+	//                WinPE-compatible, RNG-based.
+	//   "primary" -- Primary keys with unique strings.
+	//                Rollback-resistant but WinPE-incompatible.
+	KeyMethod string `yaml:"key_method"`
+}
+
 // VoucherOutputConfig configures where vouchers are saved.
 type VoucherOutputConfig struct {
 	Directory string `yaml:"directory"` // Where to save .fdoov files
@@ -106,6 +125,10 @@ func DefaultConfig() *Config {
 			KeyEncoding:    "x509",
 			CredentialPath: "cred.bin",
 			DeviceInfo:     "FDO-Device",
+		},
+		TPM: TPMConfig{
+			Hierarchy: "owner",
+			KeyMethod: "child",
 		},
 		Rendezvous: RendezvousConfig{
 			Entries: []RendezvousEntry{
@@ -186,6 +209,20 @@ func (c *Config) Validate() error {
 		// valid
 	default:
 		return fmt.Errorf("unsupported device key_encoding %q (valid: x509, x5chain, cose)", c.Device.KeyEncoding)
+	}
+
+	switch c.TPM.Hierarchy {
+	case "owner", "platform":
+		// valid
+	default:
+		return fmt.Errorf("unsupported tpm.hierarchy %q (valid: owner, platform)", c.TPM.Hierarchy)
+	}
+
+	switch c.TPM.KeyMethod {
+	case "child", "primary":
+		// valid
+	default:
+		return fmt.Errorf("unsupported tpm.key_method %q (valid: child, primary)", c.TPM.KeyMethod)
 	}
 
 	if len(c.Rendezvous.Entries) == 0 {

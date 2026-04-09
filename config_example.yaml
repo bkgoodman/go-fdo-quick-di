@@ -49,6 +49,18 @@ device:
   # Device serial number (optional; random if empty)
   serial_number: ""
 
+# ─── TPM settings (only relevant for -tags=tpm builds) ─────────────────
+tpm:
+  # TPM hierarchy for NV index operations.
+  #   "owner"    -- Owner hierarchy (default). Works in Linux userspace.
+  #   "platform" -- Platform hierarchy. Locked after boot on Linux.
+  hierarchy: "owner"
+
+  # Key creation method inside the TPM.
+  #   "child"   -- Keys as children of SRK (default). WinPE-compatible.
+  #   "primary" -- Primary keys with unique strings. Rollback-resistant.
+  key_method: "child"
+
 # Rendezvous info embedded in the voucher
 # The device will use these entries during TO1 to find the owner.
 rendezvous:
