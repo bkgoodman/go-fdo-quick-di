@@ -66,12 +66,11 @@ func verifyDAKBinding(ov *fdo.Voucher) error {
 	// Print details
 	dakDER, _ := x509.MarshalPKIXPublicKey(tpmPubKey)
 	fp := sha256.Sum256(dakDER)
-	fmt.Printf("  DAK challenge    : %x (random nonce)\n", proof.Challenge[:8])
-	fmt.Printf("  DAK signature    : %x... (%d bytes)\n", proof.Signature[:16], len(proof.Signature))
+	fmt.Printf("  Challenge sent   : %x... (random nonce)\n", proof.Challenge[:8])
+	fmt.Printf("  TPM signature    : %x... (%d bytes)\n", proof.Signature[:16], len(proof.Signature))
 	fmt.Printf("  DAK fingerprint  : %x\n", fp[:16])
 	fmt.Printf("  Voucher cert CN  : %s\n", leafCert.Subject.CommonName)
-	fmt.Printf("  DAK key match    : OK (TPM key == voucher device cert key)\n")
-	fmt.Printf("  DAK proof        : OK (TPM proved possession of private key)\n")
+	fmt.Printf("  DAK proof        : OK  (TPM signed challenge; signature verified against voucher device cert)\n")
 
 	return nil
 }

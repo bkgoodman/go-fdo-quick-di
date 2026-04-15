@@ -127,7 +127,7 @@ func inspectVoucherFile(path string) error {
 }
 
 // verifyVoucherAgainstCredential loads a voucher and the device credential,
-// then verifies the voucher's HMAC and manufacturer key hash match.
+// then performs both data-comparison checks and cryptographic proof checks.
 func verifyVoucherAgainstCredential(voucherPath string, cfg *Config) error {
 	// Load credential
 	store, err := cred.Open(cfg.Device.CredentialPath)
@@ -149,42 +149,74 @@ func verifyVoucherAgainstCredential(voucherPath string, cfg *Config) error {
 
 	fmt.Printf("Credential GUID    : %s\n", dc.GUID)
 	fmt.Printf("Voucher GUID       : %s\n", ov.Header.Val.GUID)
+	fmt.Printf("Credential store   : %s\n", credentialBackend)
+	fmt.Println()
 
-	// Check GUID match
+	// ── Data comparison checks ──────────────────────────────────────────
+	// These compare values but don't prove cryptographic authenticity.
+
+	fmt.Println("  --- Data comparison checks ---")
+
+	// GUID: simple byte comparison
 	if dc.GUID != ov.Header.Val.GUID {
-		return fmt.Errorf("GUID MISMATCH: credential %s != voucher %s", dc.GUID, ov.Header.Val.GUID)
+		return fmt.Errorf("FAIL: GUID mismatch -- credential %s != voucher %s (wrong voucher for this device?)", dc.GUID, ov.Header.Val.GUID)
 	}
-	fmt.Println("  GUID match       : OK")
+	fmt.Println("  GUID match         : OK  (voucher is for this device)")
 
-	// Verify HMAC (proves voucher header was not tampered with)
-	if err := ov.VerifyHeader(hmac256, hmac384); err != nil {
-		return fmt.Errorf("HMAC verification FAILED: %w", err)
-	}
-	fmt.Println("  HMAC verify      : OK")
-
-	// Verify manufacturer key hash
+	// Manufacturer key hash: compare stored hash against hash of voucher's mfg key
 	if err := ov.VerifyManufacturerKey(dc.PublicKeyHash); err != nil {
-		return fmt.Errorf("manufacturer key verification FAILED: %w", err)
+		return fmt.Errorf("FAIL: manufacturer key hash mismatch -- voucher's manufacturer key does not match what device stored during DI: %w", err)
 	}
-	fmt.Println("  Mfg key hash     : OK")
+	fmt.Println("  Mfg key hash match : OK  (voucher mfg key matches credential)")
 
-	// Verify cert chain hash
+	// Cert chain hash: compare hash in voucher header against actual cert chain bytes
 	if err := ov.VerifyCertChainHash(); err != nil {
-		return fmt.Errorf("cert chain hash verification FAILED: %w", err)
+		return fmt.Errorf("FAIL: cert chain hash mismatch -- device cert chain was altered after DI: %w", err)
 	}
-	fmt.Println("  Cert chain hash  : OK")
+	fmt.Println("  Cert chain hash    : OK  (device cert chain not tampered)")
 
-	// Verify entry chain signatures
-	if err := ov.VerifyEntries(); err != nil {
-		return fmt.Errorf("entry chain verification FAILED: %w", err)
+	// ── Cryptographic proof checks ──────────────────────────────────────
+	// These prove authenticity using secrets/keys, not just data comparison.
+	// Failure here means the voucher is fraudulent or corrupted.
+
+	fmt.Println()
+	fmt.Println("  --- Cryptographic proof checks ---")
+
+	// HMAC: recompute HMAC of voucher header using the device's secret
+	// (blob: raw HMAC secret from credential file; TPM: HMAC computed
+	// inside the TPM using persistent HMAC key at 0x81020003).
+	// This proves the voucher header is authentic -- it was created with
+	// THIS device's secret. A forged or corrupted voucher will fail here.
+	if err := ov.VerifyHeader(hmac256, hmac384); err != nil {
+		return fmt.Errorf("FAIL: HMAC verification -- voucher is NOT authentic for this device (forged or corrupted): %w", err)
 	}
-	fmt.Printf("  Entry chain      : OK (%d entries)\n", len(ov.Entries))
+	if credentialBackend == "blob" {
+		fmt.Println("  HMAC verify        : OK  (recomputed from device secret -- voucher is authentic)")
+	} else {
+		fmt.Println("  HMAC verify        : OK  (TPM-computed HMAC matches -- voucher is authentic)")
+	}
+
+	// Entry chain: verify COSE_Sign1 signatures on each ownership entry.
+	// Each entry is signed by the previous owner's key, forming a chain
+	// from the manufacturer to the current owner. A broken signature means
+	// an ownership transfer was forged.
+	if err := ov.VerifyEntries(); err != nil {
+		return fmt.Errorf("FAIL: ownership entry chain -- a signature in the ownership chain is invalid (forged transfer?): %w", err)
+	}
+	if len(ov.Entries) == 0 {
+		fmt.Println("  Entry chain sigs   : OK  (no ownership entries -- voucher not yet extended)")
+	} else {
+		fmt.Printf("  Entry chain sigs   : OK  (%d ownership transfer(s), all signatures valid)\n", len(ov.Entries))
+	}
 
 	// For TPM builds: prove the TPM holds the DAK private key that matches
 	// the device certificate in the voucher (live cryptographic challenge).
-	// For blob builds: this is a no-op.
+	// This is the strongest check: it proves THIS PHYSICAL TPM is the one
+	// the voucher was created for. If someone copied the voucher to another
+	// device, this fails.
 	if credentialBackend != "blob" {
-		fmt.Println("\n  --- DAK Possession Proof (TPM challenge-response) ---")
+		fmt.Println()
+		fmt.Println("  --- DAK possession proof (TPM challenge-response) ---")
 		if err := verifyDAKBinding(ov); err != nil {
 			return fmt.Errorf("DAK possession proof FAILED: %w", err)
 		}

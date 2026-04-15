@@ -206,9 +206,14 @@ CLI flags override config file values -- useful for per-device overrides:
 ### Native builds
 
 ```bash
+# quick-di
 go build -o quick-di .                              # Blob (default)
 go build -tags=tpm -o quick-di-tpm .                # Hardware TPM
 CGO_ENABLED=1 go build -tags=tpmsim -o quick-di-tpmsim .  # TPM sim
+
+# tamper (test tool)
+go build -o tamper ./cmd/tamper/                     # Blob (voucher commands only)
+go build -tags=tpm -o tamper-tpm ./cmd/tamper/       # TPM (all commands)
 ```
 
 ### Cross-compilation
@@ -217,6 +222,7 @@ CGO_ENABLED=1 go build -tags=tpmsim -o quick-di-tpmsim .  # TPM sim
 # ARM64 Linux (Raspberry Pi, edge gateways, ARM servers)
 GOOS=linux GOARCH=arm64 go build -o quick-di-linux-arm64 .
 GOOS=linux GOARCH=arm64 go build -tags=tpm -o quick-di-linux-arm64-tpm .
+GOOS=linux GOARCH=arm64 go build -tags=tpm -o tamper-linux-arm64-tpm ./cmd/tamper/
 
 # ARMv7 Linux (32-bit, older Raspberry Pi)
 GOOS=linux GOARCH=arm GOARM=7 go build -o quick-di-linux-armv7 .
@@ -255,6 +261,48 @@ tpm:
 **Why Owner hierarchy by default?** The FDO spec calls for Platform
 hierarchy, but on Linux it's locked after boot -- even as root. Owner
 hierarchy is the practical default for userspace tools.
+
+## Tamper Tool (Negative Testing)
+
+A separate `tamper` binary (`cmd/tamper/`) deliberately corrupts FDO
+artifacts to verify that verification correctly rejects tampered data.
+
+```bash
+# Voucher tampering (works on any build)
+tamper voucher-corrupt-hmac voucher.fdoov       # Flip HMAC bits (makes voucher fraudulent)
+tamper voucher-set-guid voucher.fdoov deadbeef...  # Replace GUID
+tamper voucher-set-mfg-hash voucher.fdoov abcd...  # Replace mfg key body
+tamper voucher-set-cert-hash voucher.fdoov abcd... # Replace cert chain hash
+tamper voucher-zero-entries voucher.fdoov        # Strip ownership entries
+tamper voucher-show voucher.fdoov                # Display fields (read-only)
+
+# TPM tampering (requires -tags=tpm build)
+tamper tpm-rotate-key ec384                      # Replace signing key (breaks DAK proof)
+tamper tpm-rotate-key rsa2048 0x81030001         # Create key at custom handle
+tamper tpm-rotate-hmac                           # Replace HMAC key (breaks HMAC verify)
+tamper tpm-delete 0x81020002                     # Evict a persistent object
+tamper tpm-delete-nv 0x01D10001                  # Undefine an NV index
+
+# DCTPM NV tampering (requires -tags=tpm build)
+tamper dctpm-set-active false                    # Disable credential
+tamper dctpm-set-magic 0xDEADBEEF                # Corrupt magic field
+tamper dctpm-set-dak-handle 0x81FFFFFF           # Point to nonexistent key
+tamper dctpm-set-hmac-handle 0x81FFFFFF          # Point to nonexistent key
+tamper dctpm-show                                # Display NV contents (read-only)
+```
+
+Typical negative test pattern:
+
+```bash
+# 1. Run DI
+./quick-di -quick
+# 2. Verify passes
+./quick-di -verify *.fdoov
+# 3. Corrupt the HMAC
+./tamper voucher-corrupt-hmac *.fdoov
+# 4. Verify now fails at the cryptographic proof stage
+./quick-di -verify *.fdoov   # → "voucher is NOT authentic (forged or corrupted)"
+```
 
 ## Walkthrough
 
